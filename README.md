@@ -83,22 +83,32 @@ All SuperBits form an interconnected fabric with entanglement links. Changes pro
 ## Quick Start
 
 ```bash
-cd core
-cargo test
-```
+# Run core engine tests
+cd core && cargo test
 
-## Test Results
+# Build MDBFS (requires libfuse3-dev)
+# Ubuntu/Debian: sudo apt install pkg-config libfuse3-dev fuse3
+cd mdbfs && cargo build --release
 
-```
-running 57 tests
-... all passing ...
-test result: ok. 57 passed; 0 failed; 0 ignored
+# Mount an MDB filesystem
+./target/release/mdbfs mount /mnt/mdb --store /var/lib/mdbfs --foreground
+
+# Use it like normal — all data is dimensionally folded under the hood
+echo "Hello, MDB!" > /mnt/mdb/hello.txt
+cat /mnt/mdb/hello.txt   # transparently unfolded
+
+# Check MDB metadata
+getfattr -n mdb.address /mnt/mdb/hello.txt
+getfattr -n mdb.fold_depth /mnt/mdb/hello.txt
+
+# Verify integrity of all stored data
+./target/release/mdbfs fsck --store /var/lib/mdbfs --verbose
 ```
 
 ## Roadmap
 
 - [x] **Core engine** — SuperBit, coordinates, fold/unfold, index, network, evolution
-- [ ] **MDBFS** — FUSE filesystem with fold/unfold transparent storage
+- [x] **MDBFS** — FUSE filesystem with transparent fold/unfold, xattr metadata, fsck
 - [ ] **MDB Desktop** — Wayland compositor / desktop environment
 - [ ] **MDB Process Model** — SuperBit-based process management
 - [ ] **Bootable ISO** — Linux substrate with MDB as the user-facing OS

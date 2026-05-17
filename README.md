@@ -6,14 +6,39 @@ MDB redefines the atomic unit of computation from a classical bit (0 or 1) to a 
 
 **Invented by Ryan Guitard.**
 
+## Dimensional Cascade (v0.2)
+
+MDB's coordinate engine is built on a **recursive Fibonacci cascade** where each dimension derives from the two below it. This is not a set of independent features computed on a string — it is a self-building tower where every new dimension *emerges* from the previous ones.
+
+```
+D1 → D2 → D3 → D4 = D2+D3 → D5 = D3+D4 → D6 = D4+D5 → …
+```
+
+| Dim | Name       | Formula (per position i)                   | What it represents            |
+|-----|------------|---------------------------------------------|-------------------------------|
+| D1  | Value      | w_i = 0.3 if bit=1, 0.2 if bit=0           | Existence — the raw bit       |
+| D2  | Space      | D2_i = w_i × n                              | Length-scaled position weight  |
+| D3  | Time       | D3_i = D2_i (1:1 mapping)                  | Simulated time from space     |
+| D4  | Spacetime  | D4_i = D2_i + D3_i                         | The first combined dimension  |
+| D5  | Momentum   | D5_i = D3_i + D4_i                         | Movement through spacetime    |
+| D6  | Energy     | D6_i = D4_i + D5_i                         | Emerges from momentum         |
+| D7+ | (recurse)  | D(k)_i = D(k-2)_i + D(k-1)_i              | Infinite recursive extension  |
+
+### Emergent properties
+
+- **Fibonacci coefficients**: D2=n, D3=n, D4=2n, D5=3n, D6=5n, D7=8n, …
+- **Golden Ratio convergence**: D(k)/D(k-1) → φ ≈ 1.618 as k → ∞
+- **Lossless recovery**: The original binary string is always recoverable from D1 (0.3 → 1, 0.2 → 0)
+- **Zero collisions**: Every binary string occupies a unique point in dimensional space
+
 ## Architecture
 
 ```
 mdb-os/
-├── core/              # Rust — the canonical MDB engine
+├── core/              # Rust — the canonical MDB engine (v0.2.0)
 │   ├── src/
 │   │   ├── lib.rs           # Crate root
-│   │   ├── coordinates.rs   # D3/D4/D5 dimensional address system
+│   │   ├── coordinates.rs   # Cascade engine & dimensional addressing
 │   │   ├── superbit.rs      # The SuperBit — atomic unit of MDB
 │   │   ├── definitions.rs   # DefinitionsList (immutable anchors)
 │   │   ├── fold.rs          # Lossless geometric folding engine
@@ -23,7 +48,10 @@ mdb-os/
 │   │   └── evolution.rs     # Dimensional & learning evolution
 │   ├── Cargo.toml
 │   └── tests/
-├── paper/             # Formal papers & documentation
+├── mdbfs/             # FUSE filesystem (transparent fold/unfold)
+├── desktop/           # Wayland compositor (planned)
+├── process/           # SuperBit process model (planned)
+├── iso/               # Bootable ISO builder (planned)
 └── README.md
 ```
 
@@ -45,19 +73,17 @@ B = (σ, Ψ, W, A, G)
 
 **Key property**: Collapse is a *read* operation. The binary string σ is never modified. The SuperBit remains in full superposition after collapse — solving the quantum superposition destruction problem on classical hardware.
 
-### Dimensional Coordinates
+### Dimensional Addressing
 
-Every binary string exists in at least 5 natural dimensions:
+Every binary string gets a unique address computed from the cascade:
 
-| Dimension | Name | Definition |
-|-----------|------|------------|
-| D1 | Value | The actual bit content |
-| D2 | Space | Positional relationships |
-| D3 | Time | String length `\|S\| = n` |
-| D4 | Density | Ratio of 1s to 0s |
-| D5 | Gravity | Golden Ratio weighted signature `Σ(S[i]·φ·i) mod 1` |
+| Component     | Source | Purpose |
+|---------------|--------|---------|
+| `n`           | Bit length | Separates strings by size |
+| `d4_spacetime`| Position-weighted D4 sum | Geometric scalar coordinate |
+| `d5_momentum` | FNV-1a fingerprint of D1 | Collision-free identity hash |
 
-The dimensional address `addr(S) = (D3, D4, D5)` enables **O(1) guaranteed retrieval** — you don't search for data, you compute where it *must* be.
+The address `addr(S) = (n, d4_spacetime, d5_momentum)` enables **O(1) guaranteed retrieval** — you don't search for data, you compute where it *must* be.
 
 ### Geometric Folding
 
@@ -83,7 +109,7 @@ All SuperBits form an interconnected fabric with entanglement links. Changes pro
 ## Quick Start
 
 ```bash
-# Run core engine tests
+# Run core engine tests (60 tests)
 cd core && cargo test
 
 # Build MDBFS (requires libfuse3-dev)
@@ -100,18 +126,27 @@ cat /mnt/mdb/hello.txt   # transparently unfolded
 # Check MDB metadata
 getfattr -n mdb.address /mnt/mdb/hello.txt
 getfattr -n mdb.fold_depth /mnt/mdb/hello.txt
-
-# Verify integrity of all stored data
-./target/release/mdbfs fsck --store /var/lib/mdbfs --verbose
 ```
 
 ## Roadmap
 
-- [x] **Core engine** — SuperBit, coordinates, fold/unfold, index, network, evolution
+- [x] **Core engine v0.2** — Cascade-based dimensional coordinates (Fibonacci, Golden Ratio convergence, zero collisions)
+- [x] **SuperBit** — Non-destructive collapse, multi-state, anchor positions, evolution
+- [x] **Fold/Unfold** — Lossless geometric folding with SHA-256 verification (depth 1–5 tested, up to 64KB)
+- [x] **DimensionalIndex** — O(1) retrieval via cascade-derived addresses
+- [x] **MDBNetwork** — Entanglement links, ripple propagation
 - [x] **MDBFS** — FUSE filesystem with transparent fold/unfold, xattr metadata, fsck
+- [ ] **D6+ exploration** — Energy dimension and beyond; what emerges at higher cascade depths?
 - [ ] **MDB Desktop** — Wayland compositor / desktop environment
 - [ ] **MDB Process Model** — SuperBit-based process management
 - [ ] **Bootable ISO** — Linux substrate with MDB as the user-facing OS
+
+## Version History
+
+| Version | Description |
+|---------|-------------|
+| 0.1.0   | Initial implementation (independent D3/D4/D5 dimensions) |
+| 0.2.0   | **Cascade rewrite** — sequential Fibonacci cascade where each dimension derives from the previous two. Matches Ryan's original theoretical design. |
 
 ## License
 

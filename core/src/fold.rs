@@ -4,12 +4,8 @@
 //! arbitrary binary data into a compact dimensional representation while
 //! preserving every original bit exactly.
 //!
-//! ```text
-//! fold(S, d_target) = embed_geometric(b, d, w)
-//! ```
-//!
 //! The folded output is a self-describing structure that contains:
-//! 1. The dimensional address of the original data
+//! 1. The dimensional address of the original data (cascade-derived)
 //! 2. The folded payload (geometrically reorganized data)
 //! 3. A SHA-256 hash for lossless verification
 //!
@@ -24,7 +20,7 @@ use sha2::{Digest, Sha256};
 pub const FOLD_MAGIC: &[u8; 4] = b"MDBF";
 
 /// Current fold format version.
-pub const FOLD_VERSION: u8 = 1;
+pub const FOLD_VERSION: u8 = 2;
 
 /// A folded binary object — the result of geometric folding.
 #[derive(Debug, Clone)]
@@ -40,39 +36,21 @@ pub struct FoldedData {
     /// Number of fold layers applied.
     pub fold_depth: u32,
     /// Addresses used at each fold layer (needed for multi-depth unfold).
-    /// layer_addresses[0] is the address used for the first (innermost) fold,
-    /// layer_addresses[1] for the second, etc.
     pub layer_addresses: Vec<DimensionalAddress>,
 }
 
 /// Fold raw byte data into a geometric MDB representation.
-///
-/// This is the primary fold operation. It takes arbitrary binary data and
-/// produces a self-describing folded structure that can be perfectly unfolded
-/// back to the original.
-///
-/// The fold process:
-/// 1. Compute the dimensional address (D3/D4/D5) of the input
-/// 2. Compute SHA-256 hash for integrity verification
-/// 3. Reorganize the data along dimensional axes
-/// 4. Package into the folded format with full metadata
 pub fn fold(data: &[u8]) -> FoldedData {
     fold_with_depth(data, 1)
 }
 
 /// Fold with a specified recursion depth.
-///
-/// Higher depths apply the geometric reorganization multiple times,
-/// potentially achieving greater density for data with deep dimensional
-/// structure.
 pub fn fold_with_depth(data: &[u8], depth: u32) -> FoldedData {
     let bits = coordinates::bytes_to_bits(data);
     let address = DimensionalAddress::from_bits(&bits);
 
-    // SHA-256 of original data — this is the lossless guarantee
     let original_hash = sha256(data);
 
-    // Geometric folding: reorganize data along dimensional structure
     let mut payload = data.to_vec();
     let mut layer_addresses = Vec::with_capacity(depth as usize);
 
@@ -94,61 +72,48 @@ pub fn fold_with_depth(data: &[u8], depth: u32) -> FoldedData {
 
 /// Core geometric folding algorithm.
 ///
-/// Reorganizes the data based on its dimensional properties:
-/// - Groups bytes by their bit-density contribution
-/// - Interleaves based on D5 gravity patterns
-/// - Preserves all information through reversible permutation
+/// Reorganizes the data based on its cascade-derived dimensional properties:
+/// - Applies a dimension-derived permutation (deterministic, reversible)
+/// - XOR mask from D5 momentum for additional geometric encoding
 fn geometric_fold_payload(data: &[u8], address: &DimensionalAddress) -> Vec<u8> {
     if data.is_empty() {
         return Vec::new();
     }
 
-    // Step 1: Compute a dimension-derived permutation of the data.
-    // The permutation is deterministic and reversible, based on the
-    // data's own dimensional coordinates.
     let len = data.len();
     let permutation = dimension_derived_permutation(len, address);
 
-    // Step 2: Apply the permutation to reorganize bytes
     let mut folded = vec![0u8; len];
     for (i, &perm_idx) in permutation.iter().enumerate() {
         folded[i] = data[perm_idx];
     }
 
-    // Step 3: Apply dimensional XOR mask for additional geometric encoding.
-    // The mask is derived from D5 gravity, making each folded output unique
-    // to its dimensional position. This is reversible (XOR is its own inverse).
-    let mask = gravity_mask(len, address.d5);
-    for (i, m) in folded.iter_mut().zip(mask.iter()) {
-        *i ^= m;
+    let mask = momentum_mask(len, address.d5_momentum);
+    for (byte, m) in folded.iter_mut().zip(mask.iter()) {
+        *byte ^= m;
     }
 
     folded
 }
 
 /// Generate a deterministic, reversible permutation derived from
-/// the data's dimensional coordinates.
-///
-/// Uses a linear congruential generator seeded by D3/D4/D5 to
-/// produce a Fisher-Yates-style permutation that's fully determined
-/// by the dimensional address.
+/// the data's cascade-derived dimensional coordinates.
 fn dimension_derived_permutation(len: usize, addr: &DimensionalAddress) -> Vec<usize> {
     if len == 0 {
         return Vec::new();
     }
 
-    // Seed from dimensional coordinates
-    let seed = addr.d3
+    // Seed from cascade dimensional coordinates
+    let seed = addr.n
         .wrapping_mul(2654435761) // Knuth's multiplicative hash
-        .wrapping_add((addr.d4 * 1_000_000.0) as u64)
-        .wrapping_add((addr.d5 * 1_000_000_000.0) as u64);
+        .wrapping_add((addr.d4_spacetime * 1_000_000.0) as u64)
+        .wrapping_add(addr.d5_momentum);
 
     let mut indices: Vec<usize> = (0..len).collect();
 
     // Fisher-Yates shuffle with deterministic LCG
     let mut rng_state = seed;
     for i in (1..len).rev() {
-        // LCG: state = state * 6364136223846793005 + 1442695040888963407
         rng_state = rng_state
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
@@ -168,14 +133,13 @@ pub(crate) fn inverse_permutation(perm: &[usize]) -> Vec<usize> {
     inv
 }
 
-/// Generate a deterministic XOR mask from the D5 gravity coordinate.
+/// Generate a deterministic XOR mask from the D5 momentum coordinate.
 ///
-/// The mask adds a gravity-derived layer to the folded representation.
+/// The mask adds a momentum-derived layer to the folded representation.
 /// Since XOR is self-inverse, applying the same mask unfolds it.
-fn gravity_mask(len: usize, d5: f64) -> Vec<u8> {
+fn momentum_mask(len: usize, d5_momentum: u64) -> Vec<u8> {
     let mut mask = Vec::with_capacity(len);
-    // Use D5 to seed a simple byte generator
-    let mut state = (d5 * 1_000_000_000.0) as u64;
+    let mut state = d5_momentum;
     for _ in 0..len {
         state = state
             .wrapping_mul(6364136223846793005)
@@ -197,17 +161,17 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 
 /// Encode a FoldedData structure into a self-describing binary format.
 ///
-/// Format:
+/// Format v2 (cascade):
 /// ```text
 /// [MAGIC: 4 bytes "MDBF"]
-/// [VERSION: 1 byte]
+/// [VERSION: 1 byte (2)]
 /// [FOLD_DEPTH: 4 bytes BE]
 /// [ORIGINAL_BIT_LEN: 8 bytes BE]
-/// [D3: 8 bytes BE] [D4: 8 bytes BE f64] [D5: 8 bytes BE f64]
+/// [N: 8 bytes BE] [D4_SPACETIME: 8 bytes BE f64] [D5_MOMENTUM: 8 bytes BE u64]
 /// [SHA256: 32 bytes]
 /// [NUM_LAYER_ADDRS: 4 bytes BE]
 ///   For each layer address:
-///     [D3: 8 bytes BE] [D4: 8 bytes BE f64] [D5: 8 bytes BE f64]
+///     [N: 8 bytes BE] [D4_SPACETIME: 8 bytes BE f64] [D5_MOMENTUM: 8 bytes BE u64]
 /// [PAYLOAD_LEN: 8 bytes BE]
 /// [PAYLOAD: N bytes]
 /// ```
@@ -218,17 +182,16 @@ pub fn encode_folded(folded: &FoldedData) -> Vec<u8> {
     out.push(FOLD_VERSION);
     out.extend_from_slice(&folded.fold_depth.to_be_bytes());
     out.extend_from_slice(&folded.original_bit_length.to_be_bytes());
-    out.extend_from_slice(&folded.address.d3.to_be_bytes());
-    out.extend_from_slice(&folded.address.d4.to_be_bytes());
-    out.extend_from_slice(&folded.address.d5.to_be_bytes());
+    out.extend_from_slice(&folded.address.n.to_be_bytes());
+    out.extend_from_slice(&folded.address.d4_spacetime.to_be_bytes());
+    out.extend_from_slice(&folded.address.d5_momentum.to_be_bytes());  // u64
     out.extend_from_slice(&folded.original_hash);
 
-    // Layer addresses
     out.extend_from_slice(&(folded.layer_addresses.len() as u32).to_be_bytes());
     for addr in &folded.layer_addresses {
-        out.extend_from_slice(&addr.d3.to_be_bytes());
-        out.extend_from_slice(&addr.d4.to_be_bytes());
-        out.extend_from_slice(&addr.d5.to_be_bytes());
+        out.extend_from_slice(&addr.n.to_be_bytes());
+        out.extend_from_slice(&addr.d4_spacetime.to_be_bytes());
+        out.extend_from_slice(&addr.d5_momentum.to_be_bytes());  // u64
     }
 
     out.extend_from_slice(&(folded.payload.len() as u64).to_be_bytes());
@@ -250,9 +213,9 @@ pub fn decode_folded(data: &[u8]) -> Result<FoldedData, FoldError> {
 
     let fold_depth = read_u32_be(data, &mut pos)?;
     let original_bit_length = read_u64_be(data, &mut pos)?;
-    let d3 = read_u64_be(data, &mut pos)?;
-    let d4 = read_f64_be(data, &mut pos)?;
-    let d5 = read_f64_be(data, &mut pos)?;
+    let n = read_u64_be(data, &mut pos)?;
+    let d4_spacetime = read_f64_be(data, &mut pos)?;
+    let d5_momentum = read_u64_be(data, &mut pos)?;
 
     if data.len() < pos + 32 {
         return Err(FoldError::TruncatedData);
@@ -261,17 +224,16 @@ pub fn decode_folded(data: &[u8]) -> Result<FoldedData, FoldError> {
     original_hash.copy_from_slice(&data[pos..pos + 32]);
     pos += 32;
 
-    // Layer addresses
     let num_layer_addrs = read_u32_be(data, &mut pos)? as usize;
     let mut layer_addresses = Vec::with_capacity(num_layer_addrs);
     for _ in 0..num_layer_addrs {
-        let la_d3 = read_u64_be(data, &mut pos)?;
+        let la_n = read_u64_be(data, &mut pos)?;
         let la_d4 = read_f64_be(data, &mut pos)?;
-        let la_d5 = read_f64_be(data, &mut pos)?;
+        let la_d5 = read_u64_be(data, &mut pos)?;
         layer_addresses.push(DimensionalAddress {
-            d3: la_d3,
-            d4: la_d4,
-            d5: la_d5,
+            n: la_n,
+            d4_spacetime: la_d4,
+            d5_momentum: la_d5,
         });
     }
 
@@ -282,7 +244,7 @@ pub fn decode_folded(data: &[u8]) -> Result<FoldedData, FoldError> {
     let payload = data[pos..pos + payload_len].to_vec();
 
     Ok(FoldedData {
-        address: DimensionalAddress { d3, d4, d5 },
+        address: DimensionalAddress { n, d4_spacetime, d5_momentum },
         payload,
         original_hash,
         original_bit_length,
@@ -348,9 +310,8 @@ mod tests {
 
     #[test]
     fn test_permutation_is_valid() {
-        let addr = DimensionalAddress { d3: 100, d4: 0.5, d5: 0.123 };
+        let addr = DimensionalAddress { n: 100, d4_spacetime: 50.0, d5_momentum: 75 };
         let perm = dimension_derived_permutation(100, &addr);
-        // Every index appears exactly once
         let mut sorted = perm.clone();
         sorted.sort();
         let expected: Vec<usize> = (0..100).collect();
@@ -359,19 +320,18 @@ mod tests {
 
     #[test]
     fn test_permutation_inverse() {
-        let addr = DimensionalAddress { d3: 50, d4: 0.6, d5: 0.789 };
+        let addr = DimensionalAddress { n: 50, d4_spacetime: 30.0, d5_momentum: 45 };
         let perm = dimension_derived_permutation(50, &addr);
         let inv = inverse_permutation(&perm);
-        // Applying perm then inv should give identity
         for i in 0..50 {
             assert_eq!(inv[perm[i]], i);
         }
     }
 
     #[test]
-    fn test_gravity_mask_deterministic() {
-        let m1 = gravity_mask(100, 0.12345);
-        let m2 = gravity_mask(100, 0.12345);
+    fn test_momentum_mask_deterministic() {
+        let m1 = momentum_mask(100, 12345);
+        let m2 = momentum_mask(100, 12345);
         assert_eq!(m1, m2);
     }
 
@@ -393,7 +353,7 @@ mod tests {
         let encoded = encode_folded(&folded);
         let decoded = decode_folded(&encoded).unwrap();
 
-        assert_eq!(decoded.address.d3, folded.address.d3);
+        assert_eq!(decoded.address.n, folded.address.n);
         assert_eq!(decoded.original_hash, folded.original_hash);
         assert_eq!(decoded.payload, folded.payload);
         assert_eq!(decoded.fold_depth, folded.fold_depth);

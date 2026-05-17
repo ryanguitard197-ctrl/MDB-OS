@@ -1,6 +1,6 @@
 [package]
 name = "mdb-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Ryan Guitard <ryan@mdb-os.dev>"]
 description = "MDB (Multidimensional Binary) Core Engine — the foundational computing substrate"
@@ -11,6 +11,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 rand = "0.8"
+getrandom = { version = "0.2", features = ["js"] }
 
 [dev-dependencies]
 rand = "0.8"

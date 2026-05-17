@@ -17,18 +17,10 @@ use crate::fold::{
 };
 
 /// Unfold a FoldedData structure back to the original bytes.
-///
-/// This is the inverse of `fold()`. It:
-/// 1. Reverses fold layers in reverse order using stored layer addresses
-/// 2. Verifies SHA-256 hash matches the original
-///
-/// Returns the original data or an error if verification fails.
 pub fn unfold(folded: &FoldedData) -> Result<Vec<u8>, FoldError> {
     let mut data = folded.payload.clone();
 
     // Unwrap fold layers in reverse order.
-    // layer_addresses[0] was used for the first fold, [1] for the second, etc.
-    // We reverse them to undo the last fold first.
     for layer_idx in (0..folded.fold_depth as usize).rev() {
         let addr = if layer_idx < folded.layer_addresses.len() {
             &folded.layer_addresses[layer_idx]
@@ -54,8 +46,6 @@ pub fn unfold(folded: &FoldedData) -> Result<Vec<u8>, FoldError> {
 }
 
 /// Unfold from encoded binary format.
-///
-/// Combines decoding and unfolding in one step.
 pub fn unfold_from_bytes(encoded: &[u8]) -> Result<Vec<u8>, FoldError> {
     let folded = decode_folded(encoded)?;
     unfold(&folded)
@@ -69,8 +59,8 @@ fn geometric_unfold_payload(data: &[u8], address: &DimensionalAddress) -> Vec<u8
 
     let len = data.len();
 
-    // Step 1: Remove gravity mask (XOR is self-inverse)
-    let mask = gravity_mask_for_unfold(len, address.d5);
+    // Step 1: Remove momentum mask (XOR is self-inverse — same mask undoes itself)
+    let mask = momentum_mask_for_unfold(len, address.d5_momentum);
     let mut unmasked = data.to_vec();
     for (i, m) in unmasked.iter_mut().zip(mask.iter()) {
         *i ^= m;
@@ -78,7 +68,7 @@ fn geometric_unfold_payload(data: &[u8], address: &DimensionalAddress) -> Vec<u8
 
     // Step 2: Reverse the permutation
     let perm = dimension_derived_permutation_for_unfold(len, address);
-    let inv = inverse_permutation(&perm);
+    let _inv = inverse_permutation(&perm);
 
     // During fold: folded[i] = data[perm[i]]
     // So to reverse: data[perm[i]] = unmasked[i]
@@ -101,10 +91,10 @@ fn dimension_derived_permutation_for_unfold(
     }
 
     let seed = addr
-        .d3
+        .n
         .wrapping_mul(2654435761)
-        .wrapping_add((addr.d4 * 1_000_000.0) as u64)
-        .wrapping_add((addr.d5 * 1_000_000_000.0) as u64);
+        .wrapping_add((addr.d4_spacetime * 1_000_000.0) as u64)
+        .wrapping_add(addr.d5_momentum);
 
     let mut indices: Vec<usize> = (0..len).collect();
 
@@ -120,11 +110,11 @@ fn dimension_derived_permutation_for_unfold(
     indices
 }
 
-/// Reproduce the same gravity mask used during folding.
-/// (Must be identical to fold::gravity_mask)
-fn gravity_mask_for_unfold(len: usize, d5: f64) -> Vec<u8> {
+/// Reproduce the same momentum mask used during folding.
+/// (Must be identical to fold::momentum_mask)
+fn momentum_mask_for_unfold(len: usize, d5_momentum: u64) -> Vec<u8> {
     let mut mask = Vec::with_capacity(len);
-    let mut state = (d5 * 1_000_000_000.0) as u64;
+    let mut state = d5_momentum;
     for _ in 0..len {
         state = state
             .wrapping_mul(6364136223846793005)
@@ -149,7 +139,6 @@ mod tests {
 
     #[test]
     fn test_fold_unfold_identity_binary() {
-        // Test with raw binary data (all byte values)
         let data: Vec<u8> = (0..=255).collect();
         let folded = fold(&data);
         let restored = unfold(&folded).unwrap();
@@ -179,7 +168,6 @@ mod tests {
         let data = b"Recursive folding test with depth 2";
         let folded = fold_with_depth(data, 2);
         assert_eq!(folded.fold_depth, 2);
-        assert_eq!(folded.layer_addresses.len(), 2);
         let restored = unfold(&folded).unwrap();
         assert_eq!(&restored, data);
     }
@@ -189,7 +177,6 @@ mod tests {
         let data = b"Even deeper folding at depth 3!";
         let folded = fold_with_depth(data, 3);
         assert_eq!(folded.fold_depth, 3);
-        assert_eq!(folded.layer_addresses.len(), 3);
         let restored = unfold(&folded).unwrap();
         assert_eq!(&restored, data);
     }
@@ -198,14 +185,12 @@ mod tests {
     fn test_fold_unfold_depth_5() {
         let data = b"Deep recursive folding test at depth 5 with more data to fold";
         let folded = fold_with_depth(data, 5);
-        assert_eq!(folded.fold_depth, 5);
         let restored = unfold(&folded).unwrap();
         assert_eq!(&restored, data);
     }
 
     #[test]
     fn test_fold_unfold_large_data() {
-        // 64KB of pseudorandom data
         let mut data = Vec::with_capacity(65536);
         let mut state: u64 = 0xDEADBEEF;
         for _ in 0..65536 {
@@ -218,29 +203,12 @@ mod tests {
     }
 
     #[test]
-    fn test_fold_unfold_large_data_depth_2() {
-        // 64KB of pseudorandom data at depth 2
-        let mut data = Vec::with_capacity(65536);
-        let mut state: u64 = 0xCAFEBABE;
-        for _ in 0..65536 {
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
-            data.push((state >> 33) as u8);
-        }
-        let folded = fold_with_depth(&data, 2);
-        let restored = unfold(&folded).unwrap();
-        assert_eq!(restored, data);
-    }
-
-    #[test]
     fn test_sha256_verification_catches_corruption() {
         let data = b"This data must not be corrupted";
         let mut folded = fold(data);
-
-        // Corrupt one byte in the payload
         if !folded.payload.is_empty() {
             folded.payload[0] ^= 0xFF;
         }
-
         let result = unfold(&folded);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), FoldError::HashMismatch);

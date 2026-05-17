@@ -1,0 +1,8 @@
+target/
+Cargo.lock
+*.iso
+*.deb
+*.swp
+*.o
+*.so
+.DS_Store

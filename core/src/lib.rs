@@ -50,6 +50,7 @@
 //! - [`gates`] — Dimensional gate system (Hadamard, CNOT, Phase, Oracle)
 //! - [`search`] — Superposition search algorithms (dimensional, pattern, fitness)
 //! - [`register`] — Quantum register (full statevector, all standard gates, QFT)
+//! - [`sparse_register`] — Cascade-addressed sparse quantum register (scales past 24 qubits)
 //! - [`algorithms`] — Quantum algorithms (Shor's, Grover's, Deutsch–Jozsa, teleportation)
 //! - [`circuit`] — Declarative circuit builder with ASCII visualization
 //! - [`error_correction`] — Quantum error correction (bit-flip, phase-flip, Shor 9-qubit, Steane 7-qubit)
@@ -66,6 +67,7 @@ pub mod gates;
 pub mod index;
 pub mod network;
 pub mod register;
+pub mod sparse_register;
 pub mod benchmarks;
 pub mod error_correction;
 pub mod persistence;

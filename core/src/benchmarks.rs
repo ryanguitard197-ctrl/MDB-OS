@@ -10,6 +10,7 @@
 use crate::algorithms;
 use crate::circuit::Circuit;
 use crate::register::QuantumRegister;
+use crate::sparse_register::SparseQuantumRegister;
 use crate::superbit::SuperBit;
 use crate::variational::{Ansatz, Hamiltonian, maxcut_cost, qaoa, vqe};
 use std::time::Instant;
@@ -67,7 +68,68 @@ pub fn run_all() -> Vec<BenchmarkResult> {
         bench_qaoa_maxcut(),
         bench_error_correction(),
         bench_register_scaling(),
+        // Dense vs Sparse comparisons
+        bench_sparse_vs_dense_bell(),
+        bench_sparse_vs_dense_ghz(16),
+        bench_sparse_vs_dense_ghz(20),
+        bench_sparse_grover(3),
+        bench_sparse_qft(8),
+        bench_sparse_beyond_dense_ghz(30),
+        bench_sparse_beyond_dense_ghz(50),
+        bench_sparse_pruning(),
     ]
+}
+
+/// Run only the sparse benchmarks.
+pub fn run_sparse() -> Vec<BenchmarkResult> {
+    vec![
+        bench_sparse_vs_dense_bell(),
+        bench_sparse_vs_dense_ghz(16),
+        bench_sparse_vs_dense_ghz(20),
+        bench_sparse_grover(3),
+        bench_sparse_qft(8),
+        bench_sparse_beyond_dense_ghz(30),
+        bench_sparse_beyond_dense_ghz(50),
+        bench_sparse_beyond_dense_ghz(64),
+        bench_sparse_pruning(),
+        bench_sparse_memory_comparison(),
+    ]
+}
+
+/// Format sparse benchmark results as a report.
+pub fn sparse_report() -> String {
+    let results = run_sparse();
+    let mut lines = Vec::new();
+    lines.push("=============================================================================".to_string());
+    lines.push("  MDB-OS Sparse Register Benchmark Suite                                     ".to_string());
+    lines.push("  Dense vs Cascade-Addressed Sparse Quantum Register                         ".to_string());
+    lines.push("=============================================================================".to_string());
+    lines.push(String::new());
+
+    let total_time: u128 = results.iter().map(|r| r.time_us).sum();
+    let pass_count = results.iter().filter(|r| r.correct).count();
+
+    for r in &results {
+        lines.push(format!("  {}", r));
+    }
+
+    lines.push(String::new());
+    lines.push("-----------------------------------------------------------------------------".to_string());
+    lines.push(format!(
+        "  Total: {}us ({:.1}ms)  {}/{} passed",
+        total_time,
+        total_time as f64 / 1000.0,
+        pass_count,
+        results.len(),
+    ));
+    lines.push("-----------------------------------------------------------------------------".to_string());
+    lines.push(String::new());
+    lines.push("  Key insight: sparse register memory = f(entanglement complexity),".to_string());
+    lines.push("  not f(2^n).  For circuits that stay sparse, the qubit ceiling".to_string());
+    lines.push("  shifts from 24 to 50+ on the same hardware.".to_string());
+    lines.push(String::new());
+
+    lines.join("\n")
 }
 
 /// Format all benchmark results as a report.
@@ -448,6 +510,265 @@ fn bench_register_scaling() -> BenchmarkResult {
         gate_count: 0,
         qubit_count: 20,
         result_summary: summary,
+        correct: true,
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Dense vs Sparse comparison benchmarks
+// ═════════════════════════════════════════════════════════════════════
+
+fn bench_sparse_vs_dense_bell() -> BenchmarkResult {
+    // Dense
+    let start_d = Instant::now();
+    let mut dense = QuantumRegister::new(2, "bell_dense");
+    dense.hadamard(0);
+    dense.cnot(0, 1);
+    let _ = dense.peek();
+    let time_dense = start_d.elapsed().as_micros();
+
+    // Sparse
+    let start_s = Instant::now();
+    let mut sparse = SparseQuantumRegister::new(2, "bell_sparse");
+    sparse.hadamard(0);
+    sparse.cnot(0, 1);
+    let view = sparse.peek();
+    let time_sparse = start_s.elapsed().as_micros();
+
+    let correct = view.nonzero_states == 2 && sparse.population() == 2;
+    BenchmarkResult {
+        name: "Sparse vs Dense: Bell (2q)".to_string(),
+        time_us: time_sparse,
+        gate_count: 2,
+        qubit_count: 2,
+        result_summary: format!(
+            "dense={}us sparse={}us pop={} mem={}B",
+            time_dense, time_sparse, sparse.population(), sparse.memory_bytes()
+        ),
+        correct,
+    }
+}
+
+fn bench_sparse_vs_dense_ghz(n: usize) -> BenchmarkResult {
+    // Dense
+    let start_d = Instant::now();
+    let mut dense = QuantumRegister::new(n, "ghz_dense");
+    dense.hadamard(0);
+    for i in 1..n {
+        dense.cnot(0, i);
+    }
+    let _ = dense.peek();
+    let time_dense = start_d.elapsed().as_micros();
+    let dense_mem = std::mem::size_of::<(f64, f64)>() * (1usize << n);
+
+    // Sparse
+    let start_s = Instant::now();
+    let mut sparse = SparseQuantumRegister::new(n, "ghz_sparse");
+    sparse.hadamard(0);
+    for i in 1..n {
+        sparse.cnot(0, i);
+    }
+    let view = sparse.peek();
+    let time_sparse = start_s.elapsed().as_micros();
+
+    let correct = view.nonzero_states == 2 && sparse.population() == 2;
+    let speedup = if time_sparse > 0 {
+        time_dense as f64 / time_sparse as f64
+    } else {
+        f64::INFINITY
+    };
+
+    BenchmarkResult {
+        name: format!("Sparse vs Dense: GHZ ({}q)", n),
+        time_us: time_sparse,
+        gate_count: n,
+        qubit_count: n,
+        result_summary: format!(
+            "dense={}us/{}KB sparse={}us/{}B {:.1}x faster {:.0}x less mem",
+            time_dense,
+            dense_mem / 1024,
+            time_sparse,
+            sparse.memory_bytes(),
+            speedup,
+            dense_mem as f64 / sparse.memory_bytes() as f64
+        ),
+        correct,
+    }
+}
+
+fn bench_sparse_grover(n: usize) -> BenchmarkResult {
+    let target = (1u64 << n) - 1; // all-ones
+
+    let start = Instant::now();
+    let mut r = SparseQuantumRegister::new(n, "grover_sparse");
+
+    // Uniform superposition
+    for k in 0..n {
+        r.hadamard(k);
+    }
+
+    // One Grover iteration
+    let target_bits: Vec<u8> = (0..n).map(|k| ((target >> (n as u64 - 1 - k as u64)) & 1) as u8).collect();
+    r.apply_oracle(&|bits: &[u8]| bits == target_bits.as_slice());
+    r.grover_diffusion();
+
+    let prob = r.amplitude(target).0.powi(2) + r.amplitude(target).1.powi(2);
+    let elapsed = start.elapsed().as_micros();
+
+    let correct = prob > 0.5;
+    BenchmarkResult {
+        name: format!("Sparse Grover ({}q)", n),
+        time_us: elapsed,
+        gate_count: n * 4,
+        qubit_count: n,
+        result_summary: format!(
+            "P(target)={:.4} pop={} mem={}B",
+            prob, r.population(), r.memory_bytes()
+        ),
+        correct,
+    }
+}
+
+fn bench_sparse_qft(n: usize) -> BenchmarkResult {
+    // Dense QFT
+    let start_d = Instant::now();
+    let mut dense = QuantumRegister::from_int(n, 5, "qft_dense");
+    let positions: Vec<usize> = (0..n).collect();
+    dense.qft(&positions);
+    dense.inverse_qft(&positions);
+    let time_dense = start_d.elapsed().as_micros();
+
+    // Sparse QFT
+    let start_s = Instant::now();
+    let mut sparse = SparseQuantumRegister::from_int(n, 5, "qft_sparse");
+    let positions: Vec<usize> = (0..n).collect();
+    sparse.qft(&positions);
+    sparse.inverse_qft(&positions);
+    let time_sparse = start_s.elapsed().as_micros();
+
+    // After QFT+IQFT, should be back to |5⟩ = one state
+    let fid = {
+        let prob = sparse.amplitude(5).0.powi(2) + sparse.amplitude(5).1.powi(2);
+        prob
+    };
+    let correct = fid > 0.99;
+
+    BenchmarkResult {
+        name: format!("Sparse vs Dense: QFT ({}q)", n),
+        time_us: time_sparse,
+        gate_count: n * n,
+        qubit_count: n,
+        result_summary: format!(
+            "dense={}us sparse={}us fidelity={:.4} pop={}",
+            time_dense, time_sparse, fid, sparse.population()
+        ),
+        correct,
+    }
+}
+
+fn bench_sparse_beyond_dense_ghz(n: usize) -> BenchmarkResult {
+    let start = Instant::now();
+    let mut r = SparseQuantumRegister::new(n, &format!("ghz_{}", n));
+    r.hadamard(0);
+    for i in 1..n {
+        r.cnot(i - 1, i);
+    }
+    let elapsed = start.elapsed().as_micros();
+
+    let correct = r.population() == 2;
+    let would_need = if n < 64 {
+        format!("{}GB", (16u128 * (1u128 << n)) / (1024 * 1024 * 1024))
+    } else {
+        "way more than exists".to_string()
+    };
+
+    BenchmarkResult {
+        name: format!("Sparse-only: GHZ ({}q)", n),
+        time_us: elapsed,
+        gate_count: n,
+        qubit_count: n,
+        result_summary: format!(
+            "pop={} mem={}B (dense would need {})",
+            r.population(), r.memory_bytes(), would_need
+        ),
+        correct,
+    }
+}
+
+fn bench_sparse_pruning() -> BenchmarkResult {
+    let start = Instant::now();
+    // Demonstrate pruning: create a superposition, apply multiple Grover
+    // iterations so most amplitudes become negligible, then prune.
+    let n = 4;
+    let mut r = SparseQuantumRegister::new(n, "prune_test");
+
+    // Uniform superposition
+    for k in 0..n {
+        r.hadamard(k);
+    }
+    let before = r.population(); // 16
+
+    // Mark target |1111⟩ and run multiple Grover iterations
+    // Optimal iterations for N=16: ~3
+    let target_bits: Vec<u8> = vec![1, 1, 1, 1];
+    for _ in 0..3 {
+        r.apply_oracle(&|bits: &[u8]| bits == target_bits.as_slice());
+        r.grover_diffusion();
+    }
+
+    // After 3 iterations, target dominates at ~96%.  Each of the 15
+    // non-target states has ~0.26% probability.  Prune below 0.5%.
+    let pruned = r.prune(0.005);
+    let after = r.population();
+    let elapsed = start.elapsed().as_micros();
+
+    let target_prob = {
+        let a = r.amplitude(0b1111);
+        a.0 * a.0 + a.1 * a.1
+    };
+
+    let correct = after < before && target_prob > 0.9;
+    BenchmarkResult {
+        name: "Sparse pruning (4q, 3 Grover)".to_string(),
+        time_us: elapsed,
+        gate_count: n * 6 * 3,
+        qubit_count: n,
+        result_summary: format!(
+            "before={} pruned={} after={} P(target)={:.4}",
+            before, pruned, after, target_prob
+        ),
+        correct,
+    }
+}
+
+fn bench_sparse_memory_comparison() -> BenchmarkResult {
+    // GHZ states at increasing sizes — measure memory
+    let sizes = [10, 20, 30, 40, 50, 64];
+    let mut entries = Vec::new();
+
+    for &n in &sizes {
+        let start = Instant::now();
+        let mut r = SparseQuantumRegister::new(n, "mem");
+        r.hadamard(0);
+        for i in 1..n {
+            r.cnot(i - 1, i);
+        }
+        let elapsed = start.elapsed().as_micros();
+        let mem = r.memory_bytes();
+        let dense_mem = if n < 40 {
+            format!("{}KB", (16u128 * (1u128 << n)) / 1024)
+        } else {
+            format!(">{}TB", (16u128 * (1u128 << 40)) / (1024 * 1024 * 1024 * 1024))
+        };
+        entries.push(format!("{}q:{}B/{}us(dense:{})", n, mem, elapsed, dense_mem));
+    }
+
+    BenchmarkResult {
+        name: "Sparse memory scaling".to_string(),
+        time_us: 0,
+        gate_count: 0,
+        qubit_count: 64,
+        result_summary: entries.join(" "),
         correct: true,
     }
 }

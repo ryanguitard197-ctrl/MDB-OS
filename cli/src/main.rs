@@ -14,6 +14,7 @@ use mdb_core::circuit;
 use mdb_core::coordinates::DimensionalCascade;
 use mdb_core::persistence::Workspace;
 use mdb_core::register::QuantumRegister;
+use mdb_core::sparse_register::SparseQuantumRegister;
 use mdb_core::superbit::SuperBit;
 use std::io::{self, BufRead, Write};
 
@@ -26,7 +27,14 @@ fn main() {
     }
 
     match args[1].as_str() {
-        "bench" | "benchmark" => cmd_bench(),
+        "bench" | "benchmark" => {
+            if args.get(2).map(|s| s.as_str()) == Some("sparse") {
+                cmd_bench_sparse();
+            } else {
+                cmd_bench();
+            }
+        }
+        "sparse" => cmd_sparse(&args[2..]),
         "circuit" => cmd_circuit(&args[2..]),
         "shor" => cmd_shor(&args[2..]),
         "grover" => cmd_grover(&args[2..]),
@@ -395,6 +403,62 @@ fn cmd_bench() {
     println!("{}", benchmarks::report());
 }
 
+fn cmd_bench_sparse() {
+    println!("{}", benchmarks::sparse_report());
+}
+
+fn cmd_sparse(args: &[String]) {
+    let subcmd = args.first().map(|s| s.as_str()).unwrap_or("help");
+    match subcmd {
+        "ghz" => {
+            let n: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(30);
+            println!("Creating {}-qubit GHZ state (sparse mode)...", n);
+            let start = std::time::Instant::now();
+            let mut r = SparseQuantumRegister::new(n, &format!("ghz_{}", n));
+            r.hadamard(0);
+            for i in 1..n {
+                r.cnot(i - 1, i);
+            }
+            let elapsed = start.elapsed();
+            println!("{}", r);
+            println!("Population: {} states", r.population());
+            println!("Memory: {} bytes", r.memory_bytes());
+            println!("Time: {:.1}ms", elapsed.as_secs_f64() * 1000.0);
+            if n < 64 {
+                println!(
+                    "Dense would need: {} bytes (2^{} × 16)",
+                    16u128 * (1u128 << n),
+                    n
+                );
+            } else {
+                println!("Dense would need: 2^{} × 16 bytes (impossible)", n);
+            }
+            println!("\nCascade snapshot:");
+            for entry in r.cascade_snapshot() {
+                println!(
+                    "  |{:0width$b}⟩  p={:.6}  {}",
+                    entry.index,
+                    entry.probability,
+                    entry.address,
+                    width = n.min(64)
+                );
+            }
+        }
+        "bench" => {
+            println!("{}", benchmarks::sparse_report());
+        }
+        _ => {
+            println!("MDB Sparse Register Commands:");
+            println!("  mdb sparse ghz [n]    Create n-qubit GHZ state (default: 30)");
+            println!("  mdb sparse bench      Run sparse benchmarks");
+            println!();
+            println!("The sparse register stores only populated basis states,");
+            println!("addressed by the dimensional cascade. Memory scales with");
+            println!("entanglement complexity, not 2^n.");
+        }
+    }
+}
+
 fn cmd_circuit(args: &[String]) {
     let name = args.first().map(|s| s.as_str()).unwrap_or("bell");
     repl_circuit(&[name]);
@@ -457,6 +521,9 @@ fn cmd_help() {
     println!("USAGE:");
     println!("  mdb                         Interactive REPL");
     println!("  mdb bench                   Run benchmark suite");
+    println!("  mdb bench sparse            Run sparse vs dense benchmarks");
+    println!("  mdb sparse ghz [n]          Create n-qubit GHZ state (sparse mode)");
+    println!("  mdb sparse bench            Run sparse register benchmarks");
     println!("  mdb shor <N>                Factor a number with Shor's algorithm");
     println!("  mdb grover <qubits> <tgt>   Grover's search");
     println!("  mdb circuit <name>          Run a preset circuit (bell, ghz, qft)");

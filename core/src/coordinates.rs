@@ -17,7 +17,7 @@ use crate::PHI;
 /// A point in MDB's 3D coordinate space.
 ///
 /// Represents the intrinsic dimensional address of a binary string or SuperBit.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DimensionalAddress {
     /// D3 — Temporal coordinate (string length).
     pub d3: u64,

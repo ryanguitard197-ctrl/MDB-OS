@@ -51,8 +51,13 @@
 //! - [`search`] — Superposition search algorithms (dimensional, pattern, fitness)
 //! - [`register`] — Quantum register (full statevector, all standard gates, QFT)
 //! - [`algorithms`] — Quantum algorithms (Shor's, Grover's, Deutsch–Jozsa, teleportation)
+//! - [`circuit`] — Declarative circuit builder with ASCII visualization
+//! - [`error_correction`] — Quantum error correction (bit-flip, phase-flip, Shor 9-qubit, Steane 7-qubit)
+//! - [`phase_estimation`] — Quantum phase estimation (QPE)
+//! - [`variational`] — Variational algorithms (VQE, QAOA)
 
 pub mod algorithms;
+pub mod circuit;
 pub mod coordinates;
 pub mod definitions;
 pub mod evolution;
@@ -61,9 +66,12 @@ pub mod gates;
 pub mod index;
 pub mod network;
 pub mod register;
+pub mod error_correction;
+pub mod phase_estimation;
 pub mod search;
 pub mod superbit;
 pub mod unfold;
+pub mod variational;
 
 /// The Golden Ratio — emerges naturally from the dimensional cascade.
 /// D(k)/D(k-1) converges to this value as k increases.

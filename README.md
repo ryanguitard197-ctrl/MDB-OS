@@ -49,7 +49,11 @@ mdb-os/
 │   │   ├── gates.rs         # Dimensional gate system (Hadamard, CNOT, Phase, Oracle)
 │   │   ├── search.rs        # Superposition search algorithms
 │   │   ├── register.rs      # Quantum register (statevector, all standard gates, QFT)
-│   │   └── algorithms.rs    # Quantum algorithms (Shor's, Grover's, Deutsch-Jozsa, teleportation)
+│   │   ├── algorithms.rs    # Quantum algorithms (Shor's, Grover's, Deutsch-Jozsa, teleportation)
+│   │   ├── circuit.rs       # Declarative circuit builder with ASCII visualization
+│   │   ├── error_correction.rs  # Error correction codes (3-qubit, Shor, Steane)
+│   │   ├── phase_estimation.rs  # Quantum phase estimation
+│   │   └── variational.rs   # VQE + QAOA variational algorithms
 │   ├── Cargo.toml
 │   └── tests/
 ├── mdbfs/             # FUSE filesystem (transparent fold/unfold)
@@ -183,6 +187,58 @@ Standard algorithms proving full quantum computing equivalence:
 - **Shor's Factoring** — Polynomial-time integer factoring via quantum period-finding + QFT
 - **Quantum Teleportation** — State transfer via entanglement + classical bits
 
+### Circuit Model
+
+Declarative circuit builder with ASCII visualization:
+
+```rust
+let result = Circuit::new(3, "Bell + GHZ")
+    .h(0)
+    .cnot(0, 1)
+    .cnot(1, 2)
+    .barrier()
+    .measure_all()
+    .execute();
+
+println!("{}", circuit.to_ascii());
+//   q0: ─[H]───●───────│ ─[M*]─
+//   q1: ───────X───●───│ ─[M*]─
+//   q2: ───────────X───│ ─[M*]─
+```
+
+Preset circuits: `bell_pair()`, `ghz_state()`, `qft_circuit()`, `grover_iteration()`.
+
+### Error Correction
+
+| Code | Qubits | Corrects |
+|------|--------|----------|
+| Bit-flip | 3 | Single X error |
+| Phase-flip | 3 | Single Z error |
+| Shor's | 9 | Any single-qubit error (X, Z, or Y) |
+| Steane's | 7 | Any single-qubit error (CSS code) |
+
+MDB advantage: syndrome extraction uses `peek()` — no ancilla qubits needed.
+
+### Quantum Phase Estimation
+
+Estimates eigenvalue phases θ of unitary operators to arbitrary precision:
+- `estimate_phase_gate(θ, bits)` — exact for binary fractions
+- `estimate_eigenvalues_2x2(matrix, bits)` — general 2×2 unitaries
+- `phase_estimation(...)` — fully general QPE subroutine
+
+### Variational Algorithms
+
+**VQE** (Variational Quantum Eigensolver):
+- Pauli Hamiltonians (I, X, Y, Z tensor products)
+- Ansätze: Ry-ladder, hardware-efficient
+- Parameter-shift gradient rule
+- Preset: `Hamiltonian::hydrogen_molecule(bond_length)`
+
+**QAOA** (Quantum Approximate Optimization):
+- Parameterised cost/mixer layers
+- MaxCut solver: `maxcut_cost(edges)`
+- Gradient-based parameter optimization
+
 ### Cascade Entanglement Network
 
 All SuperBits form an interconnected fabric with **cascade-aware entanglement links**. Unlike simple BFS propagation, entanglement operates at the dimensional cascade level:
@@ -195,7 +251,7 @@ All SuperBits form an interconnected fabric with **cascade-aware entanglement li
 ## Quick Start
 
 ```bash
-# Run core engine tests (152 tests)
+# Run core engine tests (202 tests)
 cd core && cargo test
 
 # Build MDBFS (requires libfuse3-dev)
@@ -226,10 +282,10 @@ getfattr -n mdb.fold_depth /mnt/mdb/hello.txt
 - [x] **Superposition Search** — Dimensional, pattern, fitness, and exhaustive search algorithms
 - [x] **Quantum Register** — Full statevector simulator with all standard gates + QFT
 - [x] **Quantum Algorithms** — Shor's factoring, Grover's search, Deutsch–Jozsa, teleportation
-- [ ] **Circuit Model** — Declarative circuit builder with visualization
-- [ ] **Error Correction** — Bit-flip, phase-flip, and Shor's 9-qubit codes
-- [ ] **Phase Estimation** — Eigenvalue estimation subroutine
-- [ ] **VQE/QAOA** — Variational hybrid algorithms
+- [x] **Circuit Model** — Declarative circuit builder with ASCII visualization + presets
+- [x] **Error Correction** — Bit-flip, phase-flip, Shor's 9-qubit, Steane's 7-qubit codes
+- [x] **Phase Estimation** — QPE subroutine with arbitrary precision
+- [x] **VQE/QAOA** — Variational hybrid algorithms with gradient optimization
 - [ ] **CLI / REPL** — Interactive command-line interface
 - [ ] **Persistence Layer** — Save/load SuperBits and entanglement graphs
 - [ ] **WASM Build** — Browser-native compilation
@@ -245,7 +301,7 @@ getfattr -n mdb.fold_depth /mnt/mdb/hello.txt
 | 0.1.0   | Initial implementation (independent D3/D4/D5 dimensions) |
 | 0.2.0   | **Cascade rewrite** — sequential Fibonacci cascade where each dimension derives from the previous two. Matches Ryan's original theoretical design. |
 | 0.2.1   | **Non-destructive superposition** — peek/fork/collapse_to/state_distances on SuperBit. φ-driven cascade evolution. 76 tests. |
-| 0.3.0   | **Computing engine** — Dimensional gates, cascade-aware entanglement, superposition search. Quantum register with full statevector simulation (H, X, Y, Z, S, T, Rx, Ry, Rz, CNOT, CZ, SWAP, Toffoli, Fredkin, QFT, inverse QFT, Grover diffusion). Quantum algorithms: Shor's factoring, Grover's search, Deutsch–Jozsa, quantum teleportation. 152 tests. |
+| 0.3.0   | **Computing engine** — Dimensional gates, cascade-aware entanglement, superposition search. Quantum register (all standard gates + QFT). Quantum algorithms (Shor's, Grover's, Deutsch–Jozsa, teleportation). Circuit model with ASCII visualization. Error correction (bit-flip, phase-flip, Shor 9-qubit, Steane 7-qubit). Phase estimation. VQE + QAOA. *202 tests.* |
 
 ## License
 

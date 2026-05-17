@@ -23,10 +23,51 @@
 //! allowing unlimited independent collapses — solving the quantum superposition
 //! destruction problem on classical hardware.
 
-use crate::coordinates::DimensionalAddress;
+use crate::coordinates::{DimensionalAddress, DimensionalCascade};
 use crate::definitions::DefinitionsList;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Non-Destructive Superposition Types
+// ---------------------------------------------------------------------------
+
+/// A non-destructive view of a single state in a SuperBit's superposition.
+///
+/// Contains the state's identity, probability weight, and full dimensional
+/// address — all readable without collapsing.
+#[derive(Debug, Clone)]
+pub struct StateView {
+    /// Index in the state space.
+    pub index: usize,
+    /// Human-readable label.
+    pub label: String,
+    /// Probability weight (0.0–1.0).
+    pub weight: f64,
+    /// The binary pattern for this state.
+    pub pattern: Vec<u8>,
+    /// Dimensional address computed from this state's pattern via the cascade.
+    pub address: DimensionalAddress,
+}
+
+/// A complete snapshot of a SuperBit's superposition — every state,
+/// every weight, every dimensional address — readable without collapsing.
+///
+/// This is the operation that real quantum hardware **cannot** perform.
+/// In quantum mechanics, measurement destroys superposition. Here, the
+/// SuperBit's σ, weights, and states are completely unchanged after
+/// producing this view.
+#[derive(Debug, Clone)]
+pub struct SuperpositionView {
+    /// Dimensional address of σ (the SuperBit's current encoding).
+    pub sigma_address: DimensionalAddress,
+    /// Full view of every state in the state space.
+    pub states: Vec<StateView>,
+    /// Number of states in superposition.
+    pub state_count: usize,
+    /// Generation counter at the time of this snapshot.
+    pub generation: u64,
+}
 
 /// A named state in the SuperBit's state space.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -174,6 +215,105 @@ impl SuperBit {
     /// Get the bit length of σ.
     pub fn bit_length(&self) -> usize {
         self.sigma.len()
+    }
+
+    // -----------------------------------------------------------------------
+    // Non-Destructive Superposition Operations
+    // -----------------------------------------------------------------------
+
+    /// **Non-destructive superposition read**: get the full dimensional
+    /// view of every state without collapsing.
+    ///
+    /// Returns a [`SuperpositionView`] containing every state's label,
+    /// weight, binary pattern, and dimensional address. The SuperBit's
+    /// σ, weights, generation — everything — remains completely unchanged.
+    ///
+    /// This is the fundamental advantage over quantum hardware: you can
+    /// inspect the entire state space, compare dimensional addresses,
+    /// and make decisions *before* choosing to collapse.
+    pub fn peek(&self) -> SuperpositionView {
+        let sigma_address = DimensionalAddress::from_bits(&self.sigma);
+        let states = self
+            .states
+            .iter()
+            .enumerate()
+            .map(|(i, state)| StateView {
+                index: i,
+                label: state.label.clone(),
+                weight: self.weights[i],
+                pattern: state.pattern.clone(),
+                address: DimensionalAddress::from_bits(&state.pattern),
+            })
+            .collect::<Vec<_>>();
+        let state_count = states.len();
+        SuperpositionView {
+            sigma_address,
+            states,
+            state_count,
+            generation: self.generation,
+        }
+    }
+
+    /// Fork this SuperBit into a fully independent clone.
+    ///
+    /// The fork can be collapsed, evolved, modified, or destroyed
+    /// without affecting the original. This enables parallel exploration
+    /// of different evolution paths or collapse outcomes — something
+    /// impossible with physical qubits (no-cloning theorem).
+    pub fn fork(&self) -> SuperBit {
+        self.clone()
+    }
+
+    /// Selectively collapse to a specific state by index (non-destructive).
+    ///
+    /// Unlike random collapse, this lets you choose *which* state to
+    /// examine. The SuperBit remains in full superposition — σ is never
+    /// modified.
+    pub fn collapse_to(&self, index: usize) -> Result<&State, SuperBitError> {
+        self.states
+            .get(index)
+            .ok_or(SuperBitError::StateIndexOutOfBounds(index))
+    }
+
+    /// Compute the full dimensional cascade for each state's pattern.
+    ///
+    /// Returns `(index, label, cascade)` for every state. Use this for
+    /// deep dimensional analysis — e.g., comparing how different states
+    /// behave across D4 (Spacetime), D5 (Momentum), D6 (Energy).
+    pub fn state_cascades(&self, max_dim: usize) -> Vec<(usize, String, DimensionalCascade)> {
+        self.states
+            .iter()
+            .enumerate()
+            .map(|(i, state)| {
+                let cascade = DimensionalCascade::from_bits(&state.pattern, max_dim);
+                (i, state.label.clone(), cascade)
+            })
+            .collect()
+    }
+
+    /// Compute pairwise dimensional distances between all states.
+    ///
+    /// Returns `(i, j, distance)` tuples for every pair. Distance is
+    /// computed in the (n, D4-spacetime) plane. This reveals which states
+    /// are dimensionally similar vs. different — information that is
+    /// impossible to extract from a real quantum system without collapsing.
+    pub fn state_distances(&self) -> Vec<(usize, usize, f64)> {
+        let addresses: Vec<DimensionalAddress> = self
+            .states
+            .iter()
+            .map(|s| DimensionalAddress::from_bits(&s.pattern))
+            .collect();
+
+        let mut distances = Vec::new();
+        for i in 0..addresses.len() {
+            for j in (i + 1)..addresses.len() {
+                let d4_diff = addresses[i].d4_spacetime - addresses[j].d4_spacetime;
+                let n_diff = addresses[i].n as f64 - addresses[j].n as f64;
+                let dist = (d4_diff * d4_diff + n_diff * n_diff).sqrt();
+                distances.push((i, j, dist));
+            }
+        }
+        distances
     }
 
     /// Normalize weights so they sum to exactly 1.0.
@@ -339,6 +479,7 @@ pub enum SuperBitError {
     NegativeWeight,
     InvalidMagic,
     TruncatedData,
+    StateIndexOutOfBounds(usize),
 }
 
 impl std::fmt::Display for SuperBitError {
@@ -350,6 +491,9 @@ impl std::fmt::Display for SuperBitError {
             Self::NegativeWeight => write!(f, "weights must be non-negative"),
             Self::InvalidMagic => write!(f, "invalid magic bytes (expected MDB\\x01)"),
             Self::TruncatedData => write!(f, "data is truncated"),
+            Self::StateIndexOutOfBounds(idx) => {
+                write!(f, "state index {} out of bounds", idx)
+            }
         }
     }
 }
@@ -473,5 +617,183 @@ mod tests {
         assert_eq!(sb.state_count(), 2);
         let sum: f64 = sb.weights.iter().sum();
         assert!((sum - 1.0).abs() < 1e-10);
+    }
+
+    // -------------------------------------------------------------------
+    // Non-Destructive Superposition Tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_peek_does_not_modify() {
+        let sb = SuperBit::from_bits(vec![1, 0, 1, 1]);
+        let sigma_before = sb.sigma.clone();
+        let weights_before = sb.weights.clone();
+        let gen_before = sb.generation;
+
+        let view = sb.peek();
+
+        // SuperBit must be completely unchanged
+        assert_eq!(sb.sigma, sigma_before);
+        assert_eq!(sb.weights, weights_before);
+        assert_eq!(sb.generation, gen_before);
+        // View should contain valid data
+        assert_eq!(view.state_count, 1);
+        assert_eq!(view.states[0].label, "initial");
+        assert_eq!(view.sigma_address.n, 4);
+    }
+
+    #[test]
+    fn test_peek_multi_state() {
+        let states = vec![
+            State { label: "alpha".into(), pattern: vec![1, 0] },
+            State { label: "beta".into(), pattern: vec![0, 1] },
+            State { label: "gamma".into(), pattern: vec![1, 1] },
+        ];
+        let sb = SuperBit::with_states(
+            vec![1, 0, 1],
+            states,
+            vec![0.5, 0.3, 0.2],
+            DefinitionsList::new(),
+        ).unwrap();
+
+        let view = sb.peek();
+        assert_eq!(view.state_count, 3);
+        assert_eq!(view.states[0].label, "alpha");
+        assert!((view.states[0].weight - 0.5).abs() < 1e-10);
+        assert_eq!(view.states[1].label, "beta");
+        assert!((view.states[1].weight - 0.3).abs() < 1e-10);
+        // Each state has a valid dimensional address
+        for sv in &view.states {
+            assert!(sv.address.n > 0);
+        }
+        // Different patterns → different addresses
+        assert_ne!(view.states[0].address.d5_momentum, view.states[1].address.d5_momentum);
+    }
+
+    #[test]
+    fn test_fork_independence() {
+        let mut sb = SuperBit::from_bits(vec![1, 0, 1, 0]);
+        let fork = sb.fork();
+
+        // Modify the original
+        sb.sigma[0] = 0;
+        sb.generation = 999;
+
+        // Fork must be unaffected
+        assert_eq!(fork.sigma[0], 1);
+        assert_eq!(fork.generation, 0);
+    }
+
+    #[test]
+    fn test_collapse_to_specific() {
+        let states = vec![
+            State { label: "red".into(), pattern: vec![1, 0] },
+            State { label: "blue".into(), pattern: vec![0, 1] },
+        ];
+        let sb = SuperBit::with_states(
+            vec![1, 0],
+            states,
+            vec![0.5, 0.5],
+            DefinitionsList::new(),
+        ).unwrap();
+
+        // Collapse to specific state
+        let state = sb.collapse_to(1).unwrap();
+        assert_eq!(state.label, "blue");
+        assert_eq!(state.pattern, vec![0, 1]);
+
+        // σ unchanged after selective collapse
+        assert_eq!(sb.sigma, vec![1, 0]);
+    }
+
+    #[test]
+    fn test_collapse_to_out_of_bounds() {
+        let sb = SuperBit::from_bits(vec![1, 0]);
+        assert!(sb.collapse_to(5).is_err());
+    }
+
+    #[test]
+    fn test_state_distances() {
+        let states = vec![
+            State { label: "near".into(), pattern: vec![1, 0, 1, 0] },
+            State { label: "far".into(), pattern: vec![0, 0, 0, 0] },
+            State { label: "full".into(), pattern: vec![1, 1, 1, 1] },
+        ];
+        let sb = SuperBit::with_states(
+            vec![1, 0, 1, 0],
+            states,
+            vec![0.4, 0.3, 0.3],
+            DefinitionsList::new(),
+        ).unwrap();
+
+        let distances = sb.state_distances();
+        // 3 states → 3 pairs
+        assert_eq!(distances.len(), 3);
+        // (0,1), (0,2), (1,2)
+        assert_eq!(distances[0].0, 0);
+        assert_eq!(distances[0].1, 1);
+        // Distance from all-zeros to all-ones should be largest
+        let d_01 = distances[0].2; // near vs far
+        let d_02 = distances[1].2; // near vs full
+        let d_12 = distances[2].2; // far vs full
+        assert!(d_12 > d_01, "all-0 to all-1 should be furthest");
+        assert!(d_12 > d_02, "all-0 to all-1 should be furthest");
+    }
+
+    #[test]
+    fn test_parallel_exploration() {
+        // The quantum-impossible workflow: fork, collapse differently,
+        // compare — while the original is untouched.
+        let states = vec![
+            State { label: "left".into(), pattern: vec![1, 0, 0] },
+            State { label: "right".into(), pattern: vec![0, 0, 1] },
+        ];
+        let original = SuperBit::with_states(
+            vec![1, 0, 1],
+            states,
+            vec![0.5, 0.5],
+            DefinitionsList::new(),
+        ).unwrap();
+
+        // Fork twice
+        let fork_a = original.fork();
+        let fork_b = original.fork();
+
+        // Collapse each fork to a different state
+        let state_a = fork_a.collapse_to(0).unwrap(); // "left"
+        let state_b = fork_b.collapse_to(1).unwrap(); // "right"
+
+        // Compare: different states, different patterns
+        assert_eq!(state_a.label, "left");
+        assert_eq!(state_b.label, "right");
+        assert_ne!(state_a.pattern, state_b.pattern);
+
+        // Original is completely untouched — still in full superposition
+        assert_eq!(original.state_count(), 2);
+        assert_eq!(original.sigma, vec![1, 0, 1]);
+        assert!((original.weights[0] - 0.5).abs() < 1e-10);
+        assert!((original.weights[1] - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_state_cascades() {
+        let states = vec![
+            State { label: "a".into(), pattern: vec![1, 0] },
+            State { label: "b".into(), pattern: vec![0, 1] },
+        ];
+        let sb = SuperBit::with_states(
+            vec![1, 0],
+            states,
+            vec![0.5, 0.5],
+            DefinitionsList::new(),
+        ).unwrap();
+
+        let cascades = sb.state_cascades(6);
+        assert_eq!(cascades.len(), 2);
+        assert_eq!(cascades[0].1, "a");
+        assert_eq!(cascades[1].1, "b");
+        // Each cascade should have 6 dimensions
+        assert_eq!(cascades[0].2.dims.len(), 6);
+        assert_eq!(cascades[1].2.dims.len(), 6);
     }
 }

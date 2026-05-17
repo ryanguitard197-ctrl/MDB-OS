@@ -4,7 +4,7 @@
 //! A SuperBit doesn't execute instructions — it *evolves* according to
 //! deterministic rules derived from its dimensional coordinates.
 //!
-//! Two modes of evolution:
+//! Three modes of evolution:
 //!
 //! 1. **Dimensional Evolution** — The raw binary string transforms based on
 //!    its D3 (temporal) coordinate. For odd-length strings, the middle bit
@@ -14,6 +14,13 @@
 //! 2. **Learning Evolution** — Probabilities (W) are reweighted based on
 //!    observed outcomes and rewards. The SuperBit *learns*. The updated state
 //!    is re-encoded into the binary string.
+//!
+//! 3. **Cascade Evolution** — Uses the Golden Ratio φ (which emerges from the
+//!    Fibonacci dimensional cascade) to drive a non-periodic traversal of bit
+//!    positions. Unlike dimensional evolution's period-2 toggle, cascade
+//!    evolution visits every position in a maximally-distributed pattern,
+//!    mirroring the same φ-driven growth seen in sunflower spirals and
+//!    phyllotactic leaf arrangement.
 
 use crate::superbit::SuperBit;
 
@@ -116,6 +123,94 @@ pub fn evolve_learning(
 /// Run multiple dimensional evolution steps.
 pub fn evolve_dimensional_n(sb: &mut SuperBit, steps: usize) -> Vec<EvolutionResult> {
     (0..steps).map(|_| evolve_dimensional(sb)).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Cascade Evolution — φ-driven, non-periodic
+// ---------------------------------------------------------------------------
+
+/// The Golden Ratio, emergent from the Fibonacci cascade.
+const PHI: f64 = 1.618_033_988_749_895;
+
+/// Perform a **cascade evolution** step on a SuperBit.
+///
+/// Instead of the simple parity-based bit flip, cascade evolution uses
+/// the Golden Ratio φ — the same constant that emerges from the dimensional
+/// cascade (D(k)/D(k-1) → φ) — to select which bit position evolves.
+///
+/// The target position is:
+/// ```text
+/// target = floor( fract((generation + 1) × φ) × n )
+/// ```
+///
+/// This is a *low-discrepancy sequence* (Fibonacci hashing). It visits
+/// every position in the most uniformly distributed way possible, never
+/// falling into the period-2 trap of simple dimensional evolution.
+///
+/// The same golden-angle pattern appears in sunflower seed spirals and
+/// leaf phyllotaxis — nature's optimal packing driven by the same φ
+/// that governs MDB's dimensional cascade.
+pub fn evolve_cascade(sb: &mut SuperBit) -> EvolutionResult {
+    let n = sb.sigma.len();
+    if n == 0 {
+        sb.generation += 1;
+        return EvolutionResult {
+            modified_position: None,
+            blocked_by_anchor: false,
+            generation: sb.generation,
+        };
+    }
+
+    // Golden-ratio rotation: (generation+1) × φ, take fractional part, scale to n
+    let g = (sb.generation + 1) as f64;
+    let frac = (g * PHI).fract();
+    // fract() can return negative for negative inputs; abs to be safe
+    let frac = frac.abs();
+    let target = (frac * n as f64).floor() as usize % n;
+
+    let blocked = sb.anchors.is_anchored(target);
+
+    if !blocked {
+        sb.sigma[target] ^= 1;
+    }
+
+    sb.generation += 1;
+
+    EvolutionResult {
+        modified_position: if blocked { None } else { Some(target) },
+        blocked_by_anchor: blocked,
+        generation: sb.generation,
+    }
+}
+
+/// Run multiple cascade evolution steps.
+pub fn evolve_cascade_n(sb: &mut SuperBit, steps: usize) -> Vec<EvolutionResult> {
+    (0..steps).map(|_| evolve_cascade(sb)).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Non-Destructive Evolution Preview
+// ---------------------------------------------------------------------------
+
+/// Non-destructive evolution preview: returns what the SuperBit **would**
+/// look like after one dimensional evolution step, without modifying the
+/// original.
+///
+/// Returns `(evolved_fork, result)`. The original SuperBit is untouched.
+/// Use this to compare pre- and post-evolution states side by side.
+pub fn evolve_dimensional_preview(sb: &SuperBit) -> (SuperBit, EvolutionResult) {
+    let mut fork = sb.fork();
+    let result = evolve_dimensional(&mut fork);
+    (fork, result)
+}
+
+/// Non-destructive cascade evolution preview.
+///
+/// Returns `(evolved_fork, result)`. The original SuperBit is untouched.
+pub fn evolve_cascade_preview(sb: &SuperBit) -> (SuperBit, EvolutionResult) {
+    let mut fork = sb.fork();
+    let result = evolve_cascade(&mut fork);
+    (fork, result)
 }
 
 /// Errors that can occur during evolution.
@@ -257,5 +352,157 @@ mod tests {
         let results = evolve_dimensional_n(&mut sb, 10);
         assert_eq!(results.len(), 10);
         assert_eq!(sb.generation, 10);
+    }
+
+    // -------------------------------------------------------------------
+    // Cascade Evolution Tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_cascade_evolution_basic() {
+        let mut sb = SuperBit::from_bits(vec![1, 0, 1, 0, 1, 0, 1, 0]);
+        let original = sb.sigma.clone();
+        let result = evolve_cascade(&mut sb);
+        assert_eq!(sb.generation, 1);
+        assert!(result.modified_position.is_some());
+        // Should have flipped exactly one bit
+        let diff: usize = sb.sigma.iter().zip(original.iter())
+            .filter(|(a, b)| a != b).count();
+        assert_eq!(diff, 1);
+    }
+
+    #[test]
+    fn test_cascade_evolution_not_period_2() {
+        // Dimensional evolution is period-2 (same position every time).
+        // Cascade evolution should NOT be — it should visit different positions.
+        let mut sb = SuperBit::from_bits(vec![1, 0, 1, 0, 1, 0, 1, 0]);
+        let r1 = evolve_cascade(&mut sb);
+        let r2 = evolve_cascade(&mut sb);
+        let r3 = evolve_cascade(&mut sb);
+
+        let p1 = r1.modified_position.unwrap();
+        let p2 = r2.modified_position.unwrap();
+        let p3 = r3.modified_position.unwrap();
+
+        // At least two of the three positions should differ
+        assert!(
+            p1 != p2 || p2 != p3 || p1 != p3,
+            "cascade evolution should visit different positions: {p1}, {p2}, {p3}"
+        );
+    }
+
+    #[test]
+    fn test_cascade_evolution_visits_all_positions() {
+        // Over enough steps, every position should be visited at least once
+        let n = 8;
+        let mut sb = SuperBit::from_bits(vec![0; n]);
+        let mut visited = std::collections::HashSet::new();
+
+        for _ in 0..(n * 3) {
+            let result = evolve_cascade(&mut sb);
+            if let Some(pos) = result.modified_position {
+                visited.insert(pos);
+            }
+        }
+
+        // Should have visited all positions
+        assert_eq!(
+            visited.len(), n,
+            "cascade evolution should visit all {n} positions, visited {:?}", visited
+        );
+    }
+
+    #[test]
+    fn test_cascade_evolution_respects_anchors() {
+        let mut sb = SuperBit::from_bits(vec![1, 0, 1, 0]);
+        // Anchor all positions except one
+        sb.anchors.add(0);
+        sb.anchors.add(1);
+        sb.anchors.add(2);
+        // Position 3 is free
+
+        let mut found_blocked = false;
+        let mut found_free = false;
+        for _ in 0..20 {
+            let result = evolve_cascade(&mut sb);
+            if result.blocked_by_anchor {
+                found_blocked = true;
+            }
+            if result.modified_position == Some(3) {
+                found_free = true;
+            }
+        }
+        assert!(found_blocked, "should encounter blocked positions");
+        assert!(found_free, "should eventually hit the free position");
+    }
+
+    #[test]
+    fn test_cascade_evolution_deterministic() {
+        // Same starting state → same evolution sequence
+        let mut sb1 = SuperBit::from_bits(vec![1, 0, 1, 1, 0]);
+        let mut sb2 = SuperBit::from_bits(vec![1, 0, 1, 1, 0]);
+
+        for _ in 0..10 {
+            let r1 = evolve_cascade(&mut sb1);
+            let r2 = evolve_cascade(&mut sb2);
+            assert_eq!(r1.modified_position, r2.modified_position);
+        }
+        assert_eq!(sb1.sigma, sb2.sigma);
+    }
+
+    // -------------------------------------------------------------------
+    // Non-Destructive Preview Tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn test_evolve_dimensional_preview() {
+        let sb = SuperBit::from_bits(vec![1, 0, 1, 0, 1]);
+        let sigma_before = sb.sigma.clone();
+        let gen_before = sb.generation;
+
+        let (evolved, result) = evolve_dimensional_preview(&sb);
+
+        // Original must be completely untouched
+        assert_eq!(sb.sigma, sigma_before);
+        assert_eq!(sb.generation, gen_before);
+        // Evolved fork should show the change
+        assert_eq!(evolved.generation, gen_before + 1);
+        assert!(result.modified_position.is_some());
+    }
+
+    #[test]
+    fn test_evolve_cascade_preview() {
+        let sb = SuperBit::from_bits(vec![1, 0, 1, 1, 0, 0, 1, 0]);
+        let sigma_before = sb.sigma.clone();
+
+        let (evolved, result) = evolve_cascade_preview(&sb);
+
+        // Original untouched
+        assert_eq!(sb.sigma, sigma_before);
+        assert_eq!(sb.generation, 0);
+        // Fork evolved
+        assert_eq!(evolved.generation, 1);
+        assert!(result.modified_position.is_some());
+        // They differ in exactly one position
+        let diff: usize = evolved.sigma.iter().zip(sb.sigma.iter())
+            .filter(|(a, b)| a != b).count();
+        assert_eq!(diff, 1);
+    }
+
+    #[test]
+    fn test_preview_vs_actual_match() {
+        // Preview should produce identical results to actual evolution
+        let sb = SuperBit::from_bits(vec![0, 1, 1, 0, 1]);
+
+        // Preview
+        let (preview, preview_result) = evolve_cascade_preview(&sb);
+
+        // Actual
+        let mut actual = sb.clone();
+        let actual_result = evolve_cascade(&mut actual);
+
+        assert_eq!(preview.sigma, actual.sigma);
+        assert_eq!(preview.generation, actual.generation);
+        assert_eq!(preview_result.modified_position, actual_result.modified_position);
     }
 }

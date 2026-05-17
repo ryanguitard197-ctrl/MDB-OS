@@ -23,16 +23,30 @@
 //! The cascade produces Fibonacci coefficients (1,1,2,3,5,8,…) and the ratio
 //! D(k)/D(k-1) converges to the Golden Ratio φ ≈ 1.618.
 //!
+//! ## Non-Destructive Superposition
+//!
+//! The SuperBit holds multiple states in superposition with probability
+//! weights.  Unlike a physical qubit, a SuperBit can be **read without
+//! collapsing**.  You can:
+//!
+//! - `peek()` — inspect every state, weight, and dimensional address
+//! - `fork()` — create independent clones for parallel exploration
+//! - `collapse_to(i)` — choose a specific state without modifying σ
+//! - `state_distances()` — compare states dimensionally
+//! - `evolve_cascade_preview()` — see what evolution *would* do
+//!
+//! No decoherence.  No measurement problem.  No no-cloning theorem.
+//!
 //! ## Modules
 //!
 //! - [`coordinates`] — Dimensional cascade engine and address computation
-//! - [`superbit`] — The SuperBit atomic unit with full state encoding
+//! - [`superbit`] — The SuperBit atomic unit with non-destructive superposition
 //! - [`definitions`] — Immutable anchor positions (DefinitionsList)
 //! - [`fold`] — Lossless geometric folding engine
 //! - [`unfold`] — Lossless geometric unfolding (inverse of fold)
 //! - [`index`] — DimensionalIndex for O(1) guaranteed retrieval
 //! - [`network`] — MDBNetwork and EntangledMemory
-//! - [`evolution`] — Dimensional and learning evolution rules
+//! - [`evolution`] — Dimensional, learning, and cascade (φ-driven) evolution
 
 pub mod coordinates;
 pub mod definitions;

@@ -80,9 +80,9 @@ impl DimensionalScheduler {
         Self {
             ready_queue: BinaryHeap::new(),
             focus_address: DimensionalAddress {
-                d3: 0,
-                d4: 0.0,
-                d5: 0.0,
+                n: 0,
+                d4_spacetime: 0.0,
+                d5_momentum: 0,
             },
             locality_weight: 0.3,
             evolution_weight: 0.4,
@@ -147,9 +147,9 @@ impl DimensionalScheduler {
 
     /// Compute distance between focus and a process address in dimensional space.
     fn dimensional_distance(&self, addr: &DimensionalAddress) -> f64 {
-        let d3_diff = (self.focus_address.d3 as f64 - addr.d3 as f64).abs() / (addr.d3.max(self.focus_address.d3).max(1) as f64);
-        let d4_diff = (self.focus_address.d4 - addr.d4).abs();
-        let d5_diff = (self.focus_address.d5 - addr.d5).abs();
+        let d3_diff = (self.focus_address.n as f64 - addr.n as f64).abs() / (addr.n.max(self.focus_address.n).max(1) as f64);
+        let d4_diff = (self.focus_address.d4_spacetime - addr.d4_spacetime).abs();
+        let d5_diff = (self.focus_address.d5_momentum as f64 - addr.d5_momentum as f64).abs();
 
         (d3_diff * d3_diff + d4_diff * d4_diff + d5_diff * d5_diff).sqrt()
     }
@@ -157,12 +157,12 @@ impl DimensionalScheduler {
     /// Smoothly move the focus address toward a target.
     fn update_focus(&mut self, target: &DimensionalAddress) {
         let alpha = 0.2; // Smoothing factor
-        self.focus_address.d3 = ((1.0 - alpha) * self.focus_address.d3 as f64
-            + alpha * target.d3 as f64) as u64;
-        self.focus_address.d4 =
-            (1.0 - alpha) * self.focus_address.d4 + alpha * target.d4;
-        self.focus_address.d5 =
-            (1.0 - alpha) * self.focus_address.d5 + alpha * target.d5;
+        self.focus_address.n = ((1.0 - alpha) * self.focus_address.n as f64
+            + alpha * target.n as f64) as u64;
+        self.focus_address.d4_spacetime =
+            (1.0 - alpha) * self.focus_address.d4_spacetime + alpha * target.d4_spacetime;
+        self.focus_address.d5_momentum =
+            ((1.0 - alpha) * self.focus_address.d5_momentum as f64 + alpha * target.d5_momentum as f64) as u64;
     }
 
     /// Get queue length.
@@ -212,7 +212,7 @@ mod tests {
 
         // Set focus near process 1's address
         sched.focus_address = DimensionalAddress {
-            d3: 100, d4: 0.5, d5: 0.5,
+            n: 100, d4_spacetime: 0.5, d5_momentum: 1,
         };
         sched.locality_weight = 0.8;
         sched.evolution_weight = 0.1;
@@ -220,13 +220,13 @@ mod tests {
         let mut p1 = MdbProcess::new(1, "near".into(), vec![]);
         p1.transition(ProcessState::Ready);
         p1.address = DimensionalAddress {
-            d3: 100, d4: 0.5, d5: 0.5,
+            n: 100, d4_spacetime: 0.5, d5_momentum: 1,
         };
 
         let mut p2 = MdbProcess::new(2, "far".into(), vec![]);
         p2.transition(ProcessState::Ready);
         p2.address = DimensionalAddress {
-            d3: 0, d4: 0.0, d5: 0.0,
+            n: 0, d4_spacetime: 0.0, d5_momentum: 0,
         };
 
         sched.enqueue(&p1);

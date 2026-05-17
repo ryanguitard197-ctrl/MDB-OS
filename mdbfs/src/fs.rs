@@ -121,7 +121,7 @@ impl Filesystem for MdbFilesystem {
         }
     }
 
-    fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
+    fn getattr(&mut self, _req: &Request<'_>, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
         debug!("MDBFS: getattr ino={}", ino);
         match self.store.get_inode(ino) {
             Some(meta) => reply.attr(&TTL, &Self::meta_to_attr(meta)),
@@ -769,13 +769,13 @@ impl Filesystem for MdbFilesystem {
         children.sort_by_key(|(name, _)| name.clone());
 
         for (name, &child_ino) in &children {
-            if let Some(child_meta) = self.store.get_inode(*child_ino) {
+            if let Some(child_meta) = self.store.get_inode(child_ino) {
                 let ft = match child_meta.kind {
                     InodeKind::File => FileType::RegularFile,
                     InodeKind::Directory => FileType::Directory,
                     InodeKind::Symlink => FileType::Symlink,
                 };
-                entries.push((*child_ino, ft, name.to_string()));
+                entries.push((child_ino, ft, name.to_string()));
             }
         }
 
@@ -956,7 +956,7 @@ impl Filesystem for MdbFilesystem {
                     match self.store.read_content(ino) {
                         Ok(data) => {
                             let addr = mdb_core::coordinates::DimensionalAddress::from_bytes(&data);
-                            let val = format!("D3={} D4={:.6} D5={:.9}", addr.d3, addr.d4, addr.d5);
+                            let val = format!("n={} D4_spacetime={:.6} D5_momentum={}", addr.n, addr.d4_spacetime, addr.d5_momentum);
                             if size == 0 {
                                 reply.size(val.len() as u32);
                             } else if size < val.len() as u32 {

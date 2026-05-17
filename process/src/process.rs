@@ -203,8 +203,8 @@ impl MdbProcess {
             self.pid,
             state_bytes.len(),
             folded.payload.len(),
-            self.address.d3,
-            self.address.d4,
+            self.address.n,
+            self.address.d4_spacetime,
         );
 
         Ok(folded)
@@ -262,11 +262,11 @@ impl MdbProcess {
 
         // Update dimensional affinity based on address
         evo.dimensional_affinity[2] =
-            evo.dimensional_affinity[2] * 0.9 + (self.address.d3 as f64 / self.address.d3.max(1) as f64).min(1.0) * 0.1;
+            evo.dimensional_affinity[2] * 0.9 + (self.address.n as f64 / self.address.n.max(1) as f64).min(1.0) * 0.1;
         evo.dimensional_affinity[3] =
-            evo.dimensional_affinity[3] * 0.9 + self.address.d4 * 0.1;
+            evo.dimensional_affinity[3] * 0.9 + self.address.d4_spacetime * 0.1;
         evo.dimensional_affinity[4] =
-            evo.dimensional_affinity[4] * 0.9 + self.address.d5 * 0.1;
+            evo.dimensional_affinity[4] * 0.9 + self.address.d5_momentum as f64 * 0.1;
     }
 
     /// Entangle this process with another (create a dependency link).

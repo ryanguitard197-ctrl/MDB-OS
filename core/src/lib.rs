@@ -49,7 +49,10 @@
 //! - [`evolution`] — Dimensional, learning, and cascade (φ-driven) evolution
 //! - [`gates`] — Dimensional gate system (Hadamard, CNOT, Phase, Oracle)
 //! - [`search`] — Superposition search algorithms (dimensional, pattern, fitness)
+//! - [`register`] — Quantum register (full statevector, all standard gates, QFT)
+//! - [`algorithms`] — Quantum algorithms (Shor's, Grover's, Deutsch–Jozsa, teleportation)
 
+pub mod algorithms;
 pub mod coordinates;
 pub mod definitions;
 pub mod evolution;
@@ -57,6 +60,7 @@ pub mod fold;
 pub mod gates;
 pub mod index;
 pub mod network;
+pub mod register;
 pub mod search;
 pub mod superbit;
 pub mod unfold;
@@ -66,4 +70,4 @@ pub mod unfold;
 pub const PHI: f64 = 1.618_033_988_749_895;
 
 /// MDB version string.
-pub const VERSION: &str = "0.2.0";
+pub const VERSION: &str = "0.3.0";

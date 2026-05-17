@@ -44,8 +44,10 @@ mdb-os/
 │   │   ├── fold.rs          # Lossless geometric folding engine
 │   │   ├── unfold.rs        # Lossless geometric unfolding
 │   │   ├── index.rs         # DimensionalIndex — O(1) retrieval
-│   │   ├── network.rs       # MDBNetwork & EntangledMemory
-│   │   └── evolution.rs     # Dimensional & learning evolution
+│   │   ├── network.rs       # Cascade-aware entanglement fabric
+│   │   ├── evolution.rs     # Dimensional, learning & cascade evolution
+│   │   ├── gates.rs         # Dimensional gate system (Hadamard, CNOT, Phase, Oracle)
+│   │   └── search.rs        # Superposition search algorithms
 │   ├── Cargo.toml
 │   └── tests/
 ├── mdbfs/             # FUSE filesystem (transparent fold/unfold)
@@ -119,14 +121,43 @@ SuperBits evolve rather than execute:
 
 All evolution modes have **non-destructive preview** variants that return the result without modifying the original SuperBit.
 
-### MDBNetwork
+### Dimensional Gate System
 
-All SuperBits form an interconnected fabric with entanglement links. Changes propagate through the network via ripple operations — non-local state sharing on classical hardware.
+MDB has its own gate system — analogous to quantum gates but operating on cascade vectors instead of complex amplitudes:
+
+| Gate | Inputs | What it does |
+|------|--------|-------------|
+| `cascade_hadamard` | 1 | Split into 2^k balanced states via φ-driven position selection |
+| `cascade_cnot` | 2 | Entangle: control's D4/D5 coordinates select target flips |
+| `cascade_phase` | 1 | Rotate probability weights by φ-derived sine wave |
+| `cascade_oracle` | 1 | Amplify weights of states matching a predicate |
+
+Gates compose into **pipelines** (`GatePipeline`) that apply sequentially. After any gate, the full state space is inspectable via `peek()`.
+
+### Superposition Search
+
+Search algorithms that exploit non-destructive superposition:
+
+- **`dimensional_search`** — Find state closest to a target dimensional address
+- **`pattern_search`** — Find state closest to a target bit pattern (Hamming)
+- **`fitness_search`** — Optimize any custom fitness function over the state space
+- **`exhaustive_explore`** — Fork, collapse each fork to a different state, compare all outcomes
+
+All searches leave the original SuperBit in full superposition.
+
+### Cascade Entanglement Network
+
+All SuperBits form an interconnected fabric with **cascade-aware entanglement links**. Unlike simple BFS propagation, entanglement operates at the dimensional cascade level:
+
+- When one SuperBit evolves, the cascade delta (change in D4 Spacetime) propagates
+- Entangled partners receive φ-correlated bit flips scaled by coupling strength
+- Ripple decays by golden ratio (φ-1 ≈ 0.618) at each depth level
+- Changes cascade through chains: A→B→C with diminishing but deterministic effect
 
 ## Quick Start
 
 ```bash
-# Run core engine tests (76 tests)
+# Run core engine tests (108 tests)
 cd core && cargo test
 
 # Build MDBFS (requires libfuse3-dev)
@@ -151,8 +182,10 @@ getfattr -n mdb.fold_depth /mnt/mdb/hello.txt
 - [x] **SuperBit** — Non-destructive superposition (peek, fork, selective collapse, state comparison)
 - [x] **Fold/Unfold** — Lossless geometric folding with SHA-256 verification (depth 1–5 tested, up to 64KB)
 - [x] **DimensionalIndex** — O(1) retrieval via cascade-derived addresses
-- [x] **MDBNetwork** — Entanglement links, ripple propagation
+- [x] **MDBNetwork** — Cascade-aware entanglement with φ-correlated ripple propagation
 - [x] **MDBFS** — FUSE filesystem with transparent fold/unfold, xattr metadata, fsck
+- [x] **Dimensional Gates** — Hadamard, CNOT, Phase, Oracle gates operating on cascade vectors
+- [x] **Superposition Search** — Dimensional, pattern, fitness, and exhaustive search algorithms
 - [ ] **D6+ exploration** — Energy dimension and beyond; what emerges at higher cascade depths?
 - [ ] **MDB Desktop** — Wayland compositor / desktop environment
 - [ ] **MDB Process Model** — SuperBit-based process management
@@ -165,6 +198,7 @@ getfattr -n mdb.fold_depth /mnt/mdb/hello.txt
 | 0.1.0   | Initial implementation (independent D3/D4/D5 dimensions) |
 | 0.2.0   | **Cascade rewrite** — sequential Fibonacci cascade where each dimension derives from the previous two. Matches Ryan's original theoretical design. |
 | 0.2.1   | **Non-destructive superposition** — peek/fork/collapse_to/state_distances on SuperBit. φ-driven cascade evolution. 76 tests. |
+| 0.3.0   | **Computing engine** — Dimensional gates (Hadamard, CNOT, Phase, Oracle), cascade-aware entanglement network, superposition search algorithms. 108 tests. |
 
 ## License
 

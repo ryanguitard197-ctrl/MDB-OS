@@ -45,15 +45,19 @@
 //! - [`fold`] — Lossless geometric folding engine
 //! - [`unfold`] — Lossless geometric unfolding (inverse of fold)
 //! - [`index`] — DimensionalIndex for O(1) guaranteed retrieval
-//! - [`network`] — MDBNetwork and EntangledMemory
+//! - [`network`] — MDBNetwork with cascade-aware entanglement
 //! - [`evolution`] — Dimensional, learning, and cascade (φ-driven) evolution
+//! - [`gates`] — Dimensional gate system (Hadamard, CNOT, Phase, Oracle)
+//! - [`search`] — Superposition search algorithms (dimensional, pattern, fitness)
 
 pub mod coordinates;
 pub mod definitions;
 pub mod evolution;
 pub mod fold;
+pub mod gates;
 pub mod index;
 pub mod network;
+pub mod search;
 pub mod superbit;
 pub mod unfold;
 

@@ -75,6 +75,7 @@ pub mod phase_estimation;
 pub mod search;
 pub mod superbit;
 pub mod unfold;
+pub mod security;
 pub mod variational;
 
 /// The Golden Ratio — emerges naturally from the dimensional cascade.
